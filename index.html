@@ -51,6 +51,8 @@
   .filters{display:flex;gap:8px;overflow-x:auto;padding:2px 0 14px;-webkit-overflow-scrolling:touch}
   .chip{white-space:nowrap;border:1px solid var(--line);background:var(--card);border-radius:999px;padding:7px 14px;font-size:14px;color:var(--muted)}
   .chip[aria-pressed=true]{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .catfilters{padding-top:0}
+  .catfilters .chip[aria-pressed=true]{background:var(--clay);border-color:var(--clay)}
 
   .group{margin-bottom:22px}
   .group h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 4px 8px;font-weight:600}
@@ -166,6 +168,7 @@
   </div>
 
   <div class="filters" id="filters"></div>
+  <div class="filters catfilters" id="catFilters"></div>
   <div id="list"></div>
 </div>
 
@@ -220,7 +223,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-let doc=null,lastRaw="",view="items",filter="all",editingId=null;
+let doc=null,lastRaw="",view="items",filter="all",catFilter="all",editingId=null;
 const $=id=>document.getElementById(id);
 const esc=s=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const uid=()=>Date.now()+"-"+Math.random().toString(36).slice(2,6);
@@ -299,8 +302,23 @@ function render(){
   const counts={all:data.length,open:data.filter(i=>!i.done).length,done:data.filter(i=>i.done).length,gift:data.filter(i=>i.gift).length};
   $("filters").innerHTML=cfg.filters.map(([k,l])=>`<button class="chip" data-f="${k}" aria-pressed="${filter===k}">${l}${counts[k]?` · ${counts[k]}`:""}</button>`).join("");
   $("filters").querySelectorAll(".chip").forEach(c=>c.onclick=()=>{filter=c.dataset.f;render();});
+  renderCatFilters();
   if(view==="items")renderItems();else renderSimple();
   renderSummary();
+}
+
+function renderCatFilters(){
+  const box=$("catFilters");
+  if(view!=="items"){box.style.display="none";box.innerHTML="";return;}
+  const present=doc.categories.filter(c=>doc.items.some(i=>(i.category||"Other")===c));
+  const extra=[...new Set(doc.items.map(i=>i.category||"Other"))].filter(c=>!doc.categories.includes(c));
+  const cats=present.concat(extra);
+  if(cats.length<2){catFilter="all";box.style.display="none";box.innerHTML="";return;}
+  if(catFilter!=="all"&&!cats.includes(catFilter))catFilter="all";
+  const chips=[["all","All categories"]].concat(cats.map(c=>[c,c]));
+  box.style.display="flex";
+  box.innerHTML=chips.map(([k,l])=>`<button class="chip" data-c="${esc(k)}" aria-pressed="${catFilter===k}">${esc(l)}</button>`).join("");
+  box.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{catFilter=c.dataset.c;render();});
 }
 
 function rowButtons(){return `<div class="rowbtns">
@@ -311,7 +329,7 @@ function wire(el){const id=el.dataset.id;el.querySelector('[data-act=toggle]').o
 function applyFilter(arr){if(filter==="open")return arr.filter(i=>!i.done);if(filter==="done")return arr.filter(i=>i.done);if(filter==="gift")return arr.filter(i=>i.gift);return arr;}
 
 function renderItems(){
-  let items=applyFilter(doc.items.slice());const list=$("list");
+  let items=applyFilter(doc.items.slice());if(catFilter!=="all")items=items.filter(i=>(i.category||"Other")===catFilter);const list=$("list");
   if(!items.length){list.innerHTML=emptyHTML();return;}
   const order={must:0,nice:1,someday:2},groups={};
   items.forEach(i=>{(groups[i.category||"Other"]=groups[i.category||"Other"]||[]).push(i);});
@@ -355,16 +373,20 @@ function emptyHTML(){
 }
 
 function renderSummary(){
-  const data=coll();const done=data.filter(i=>i.done).length;
   if(view==="items"){
-    const total=doc.items.reduce((s,i)=>s+(Number(i.price)||0),0);
-    $("count").textContent=data.length?`${done} of ${data.length} got`:"Nothing yet";
+    const scoped=catFilter==="all"?doc.items:doc.items.filter(i=>(i.category||"Other")===catFilter);
+    const done=scoped.filter(i=>i.done).length;
+    const total=scoped.reduce((s,i)=>s+(Number(i.price)||0),0);
+    const lead=catFilter==="all"?"":esc(catFilter)+" · ";
+    $("count").textContent=scoped.length?`${lead}${done} of ${scoped.length} got`:"Nothing yet";
     $("rightStat").innerHTML=`Est. <b>R${total.toLocaleString("en-ZA")}</b>`;
-  }else{
-    const label=view==="questions"?"answered":"done";
-    $("count").textContent=data.length?`${done} of ${data.length} ${label}`:"Nothing yet";
-    $("rightStat").textContent=data.length-done?`${data.length-done} to go`:"all clear";
+    $("bar").style.width=scoped.length?`${done/scoped.length*100}%`:"0";
+    return;
   }
+  const data=coll();const done=data.filter(i=>i.done).length;
+  const label=view==="questions"?"answered":"done";
+  $("count").textContent=data.length?`${done} of ${data.length} ${label}`:"Nothing yet";
+  $("rightStat").textContent=data.length-done?`${data.length-done} to go`:"all clear";
   $("bar").style.width=data.length?`${done/data.length*100}%`:"0";
 }
 function fillCats(sel,keep){sel.innerHTML=doc.categories.map(c=>`<option ${c===keep?"selected":""}>${esc(c)}</option>`).join("");}
@@ -408,7 +430,7 @@ function renderCatChips(){$("catList").innerHTML=doc.categories.map((c,idx)=>`<s
 async function saveSettings(){await mutate(d=>{d.title=$("setTitle").value.trim()||d.title;d.subtitle=$("setSubtitle").value.trim();});}
 
 /* wire */
-$("tabs").querySelectorAll("button").forEach(b=>b.onclick=()=>{view=b.dataset.v;filter="all";render();});
+$("tabs").querySelectorAll("button").forEach(b=>b.onclick=()=>{view=b.dataset.v;filter="all";catFilter="all";render();});
 $("addBtn").onclick=add;
 $("newName").addEventListener("keydown",e=>{if(e.key==="Enter")add();});
 $("toggleDetails").onclick=()=>$("details").classList.toggle("open");
