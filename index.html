@@ -374,13 +374,15 @@ function emptyHTML(){
 
 function renderSummary(){
   if(view==="items"){
-    const scoped=catFilter==="all"?doc.items:doc.items.filter(i=>(i.category||"Other")===catFilter);
-    const done=scoped.filter(i=>i.done).length;
-    const total=scoped.reduce((s,i)=>s+(Number(i.price)||0),0);
+    const inCat=catFilter==="all"?doc.items:doc.items.filter(i=>(i.category||"Other")===catFilter);
+    const done=inCat.filter(i=>i.done).length;
+    const visible=applyFilter(inCat);                       // also honour To get / Got it / Gifts
+    const total=visible.reduce((s,i)=>s+(Number(i.price)||0),0);
     const lead=catFilter==="all"?"":esc(catFilter)+" · ";
-    $("count").textContent=scoped.length?`${lead}${done} of ${scoped.length} got`:"Nothing yet";
-    $("rightStat").innerHTML=`Est. <b>R${total.toLocaleString("en-ZA")}</b>`;
-    $("bar").style.width=scoped.length?`${done/scoped.length*100}%`:"0";
+    const moneyLabel={all:"Est.",open:"To get",done:"Got",gift:"Gifts"}[filter]||"Est.";
+    $("count").textContent=inCat.length?`${lead}${done} of ${inCat.length} got`:"Nothing yet";
+    $("rightStat").innerHTML=`${moneyLabel} <b>R${total.toLocaleString("en-ZA")}</b>`;
+    $("bar").style.width=inCat.length?`${done/inCat.length*100}%`:"0";
     return;
   }
   const data=coll();const done=data.filter(i=>i.done).length;
@@ -405,7 +407,12 @@ async function add(){
   }
   $("newName").value="";$("newName").focus();
 }
-async function toggle(id){await mutate(d=>{const i=d[VIEWS[view].coll].find(x=>x.id===id);if(i)i.done=!i.done;});}
+async function toggle(id){
+  const it=coll().find(x=>x.id===id);
+  // resistance: ticking is instant, but unticking a done item needs a confirm
+  if(it&&it.done&&!confirm(`Untick "${it.name}"? It's currently marked done.`))return;
+  await mutate(d=>{const i=d[VIEWS[view].coll].find(x=>x.id===id);if(i)i.done=!i.done;});
+}
 async function del(id){const it=coll().find(x=>x.id===id);if(!confirm(`Remove "${it?it.name:"this"}"?`))return;await mutate(d=>{const c=VIEWS[view].coll;d[c]=d[c].filter(x=>x.id!==id);});toast("Removed");}
 
 function openEdit(id){
